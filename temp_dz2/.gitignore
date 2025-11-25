@@ -1,0 +1,37 @@
+# Build output
+build/
+
+/Drivers
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Makefile
+
+# Build system temporary files
+*.o
+*.obj
+*.elf
+*.bin
+*.map
+
+# VSCode
+.vscode/
+
+# Editor files
+*~
+# Mac OS
+.DS_Store
+
+# SW specific
+*.log
+
+# Keil/MDK (if any)
+*.axf
+
+# Do not ignore project settings folder if intentionally kept
+!.settings
+
+Диаграмма без названия.drawio
