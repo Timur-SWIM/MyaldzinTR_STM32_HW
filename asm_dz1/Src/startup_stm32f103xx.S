@@ -67,69 +67,69 @@ Reset_Handler:
 Опорное напряжение ЦАП принять за 2,5 В.
 Результат записать в регистр R0
 */
-.equ U_REF, 2500000	//Опорное напряжение в мкВ 2,5 * 1e6 = 25000000
+.equ uV_Value, 	1250000
+.equ uV_REF, 2500000	//Опорное напряжение в мкВ 2,5 * 1e6 = 25000000
+.equ DAC_MAX, 0x00FFFFFF	//Максимальное значение для 24-битного ЦАП
+V_in     	.req r2
+V_ref     	.req r3
+DAC_max 	.req r4
+D_lo 		.req r5
+D_hi 		.req r6
+Cnt 		.req r7
+R 			.req r8
+Q_lo 		.req r9
+Q_hi 		.req r10
+Tmp 		.req r11
 
-ldr r1, =1250000           /* Пример: 1.25 В = 1250000 мкВ */
-bl  convert_uV_to_DAC24    /* Вызов функции преобразования напряжения в 24-битный код ЦАП */
+ldr r0, =#0
+ldr r1, =uV_Value           
+bl  convert_uV_to_DAC24   
 
 convert_uV_to_DAC24:
-    /* Проверка: если входное напряжение R1 < 0 → вернуть 0 */
-    cmp     r1, #0
-    bge     conv_input_ok  /* если >=0 → продолжаем */
-
-    /* Если отрицательное — сразу вернуть 0 */
-    mov    r0, #0
-    bx      lr
-
-conv_input_ok:
-    push    {r4-r12, lr}    /* Сохраняем используемые регистры  */
-
-    ldr     r4, =0x00FFFFFF /* Загружаем множитель 0xFFFFFF (максимум для 24-битного ЦАП) */
-    /* 64-битное умножение: (R5:R6) = R1 * 0xFFFFFF */
-    umull   r6, r5, r1, r4  /* r6 = low, r5 = high */
-    ldr     r7, =U_REF      /* Загружаем делитель — опорное напряжение 2.5 В в µV */
-
-    /* Инициализация регистров */
-    mov    r8, #0	    /* Инициализация остатка деления */
-    mov    r9, #0	    /* Старшие 32 бита частного */
-    mov    r10, #0      /* Младшие 32 бита частного */
-    mov    r11, #64     /* Счетчик итераций для 64-битового деления */
-
-div64_loop:
-    mov    r12, r5, LSR #31		/* Берем старший бит старшей части произведения (r5) */
-    lsl    r8, r8, #1		    /* Сдвигаем остаток на 1 бит влево */
-    orr    r8, r8, r12  		/* Добавляем бит из произведения в остаток */
-
-    mov    r12, r6, LSR #31     /* Берем старший бит младшей части произведения (r6) */
-    lsl    r5, r5, #1           /* Сдвигаем старшую часть произведения на 1 бит влево */
-    orr    r5, r5, r12          /* Добавляем бит из младшей части произведения в старшую */
-    lsl    r6, r6, #1           /* Сдвигаем младшую часть произведения на 1 бит влево */
-
-    mov    r12, r10, LSR #31    /* Берем старший бит младшей части частного (r10) */
-    lsl    r9, r9, #1           /* Сдвигаем старшую часть частного на 1 бит влево */
-    orr    r9, r9, r12			/* Добавляем бит в старшие 32 бита */
-    lsl    r10, r10, #1         /* Сдвигаем младшие 32 бита частного на 1 бит влево */
-
-    cmp     r8, r7              /* Сравниваем остаток с делителем */
-    blt     div64_skip_sub      /* Если остаток < делителя, пропускаем вычитание */
-    sub    r8, r8, r7           /* Вычитаем делитель из остатка */
-    orr    r10, r10, #1         /* Устанавливаем младший бит частного в 1 */
-
-div64_skip_sub:
-    subs    r11, r11, #1        /* Уменьшаем счетчик итераций */
-    bne     div64_loop          /* Если не 0 — повторяем цикл */
-
-    mov     r0, r10             /* После деления результат помещаем в R0 */
-
-    /* Ограничение до 24 бит */
-    ldr     r4, =0x00FFFFFF     /* Загружаем маску 24-бит */
-    cmp     r0, r4
-    ble     conv_done           /* Если результат <= 0xFFFFFF, пропускаем обрезку */
-    mov     r0, r4              /* Если результат больше, ограничиваем 24 битами */
-
-conv_done:
-    pop     {r4-r12, pc}
-
+    push  {r2-r11, lr}
+    ldr   DAC_max, =DAC_MAX    
+    ldr   V_ref, =uV_REF     
+    mov   V_in, r1          
+    cmp   V_in, V_ref
+    bhi   return_max        
+    umull D_lo, D_hi, V_in, DAC_max   
+    ldr   R, =#0       
+    ldr   Q_lo, =#0      
+    ldr   Q_hi, =#0     
+    ldr   Cnt, =#64      
+loop:
+    cbz   Cnt, done
+    lsrs  Tmp, D_hi, #31     
+    lsls  D_lo, D_lo, #1       
+    adc   D_hi, D_hi, D_hi       
+    lsls  Q_lo, Q_lo, #1      
+    adc   Q_hi, Q_hi, Q_hi    
+    lsl   R, R, #1
+    orr   R, R, Tmp      
+    cmp   R, V_ref
+    blt   skip_sub
+    sub   R, R, V_ref
+    orr   Q_lo, Q_lo, #1       
+skip_sub:
+    sub  Cnt, Cnt, #1
+    b     loop
+done:
+    mov   r0, Q_lo
+    b     exit
+return_max:
+    ldr   r0, =DAC_MAX
+exit:
+	.unreq V_in
+	.unreq V_ref
+	.unreq DAC_max
+	.unreq D_lo
+	.unreq D_hi
+	.unreq Cnt
+	.unreq R
+	.unreq Q_lo
+	.unreq Q_hi
+	.unreq Tmp
+    pop   {r2-r11, pc}
 
 .size Reset_Handler, .-Reset_Handler
 
